@@ -64,10 +64,12 @@ document.addEventListener('keydown', e => { keys[e.code] = true; });
 document.addEventListener('keyup',   e => { keys[e.code] = false; });
 
 let mouseX = CANVAS_W / 2, mouseY = CANVAS_H / 2;
+let mouseActive = false;
 canvas.addEventListener('mousemove', e => {
   const r = canvas.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
+  mouseActive = true;
 });
 
 const STICK_MAX = 65;
@@ -206,11 +208,10 @@ const player = {
 function updateFlashAngle() {
   if (sticks.right.id !== null && (sticks.right.dx || sticks.right.dy)) {
     flashAngle = Math.atan2(sticks.right.dy, sticks.right.dx);
-  } else if (sticks.left.id !== null && (sticks.left.dx || sticks.left.dy)) {
-    flashAngle = Math.atan2(sticks.left.dy, sticks.left.dx);
-  } else {
+  } else if (mouseActive) {
     flashAngle = Math.atan2(mouseY - wy(player.y), mouseX - wx(player.x));
   }
+  // Otherwise preserve the last known angle (left stick never overrides aim)
 }
 
 function updatePlayer() {
@@ -670,17 +671,24 @@ function drawJoysticks() {
   for (const side of ['left', 'right']) {
     const stick = sticks[side];
     if (stick.id === null) continue;
-    // Outer ring
+    // Outer ring — filled base + stroke border
     ctx.beginPath();
     ctx.arc(stick.ox, stick.oy, STICK_MAX, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // Thumb dot
-    ctx.beginPath();
-    ctx.arc(stick.ox + stick.dx * STICK_MAX, stick.oy + stick.dy * STICK_MAX, 22, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // Thumb dot — filled with an outline
+    const tx = stick.ox + stick.dx * STICK_MAX;
+    const ty = stick.oy + stick.dy * STICK_MAX;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 22, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
   }
 }
 
