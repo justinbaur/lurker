@@ -64,10 +64,12 @@ document.addEventListener('keydown', e => { keys[e.code] = true; });
 document.addEventListener('keyup',   e => { keys[e.code] = false; });
 
 let mouseX = CANVAS_W / 2, mouseY = CANVAS_H / 2;
+let mouseActive = false;
 canvas.addEventListener('mousemove', e => {
   const r = canvas.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
+  mouseActive = true;
 });
 
 const STICK_MAX = 65;
@@ -206,11 +208,10 @@ const player = {
 function updateFlashAngle() {
   if (sticks.right.id !== null && (sticks.right.dx || sticks.right.dy)) {
     flashAngle = Math.atan2(sticks.right.dy, sticks.right.dx);
-  } else if (sticks.left.id !== null && (sticks.left.dx || sticks.left.dy)) {
-    flashAngle = Math.atan2(sticks.left.dy, sticks.left.dx);
-  } else {
+  } else if (mouseActive) {
     flashAngle = Math.atan2(mouseY - wy(player.y), mouseX - wx(player.x));
   }
+  // Otherwise preserve the last known angle (left stick never overrides aim)
 }
 
 function updatePlayer() {
@@ -402,27 +403,55 @@ class Enemy {
     ctx.translate(sx, sy);
 
     if (this.state === 'frozen') {
-      ctx.fillStyle = '#3a3040';
-      ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(-7,-4); ctx.lineTo(-1,3); ctx.lineTo(-5,9);
-      ctx.stroke();
+      // Outer pulse ring
+      ctx.beginPath(); ctx.arc(0, 0, this.radius + 5, 0, Math.PI*2);
+      ctx.strokeStyle = eyeCol + '66'; ctx.lineWidth = 2; ctx.stroke();
+      // Bright pale body — high contrast against dark floor
+      ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2);
+      ctx.fillStyle = '#e2d8f5';
+      ctx.fill();
+      // Thick colored border
+      ctx.strokeStyle = eyeCol; ctx.lineWidth = 2.5; ctx.stroke();
+      // X-eyes (stunned/frozen)
+      ctx.strokeStyle = '#445'; ctx.lineWidth = 1.8;
+      [[-6, -3], [6, -3]].forEach(([ex, ey]) => {
+        ctx.beginPath(); ctx.moveTo(ex-3, ey-3); ctx.lineTo(ex+3, ey+3); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ex+3, ey-3); ctx.lineTo(ex-3, ey+3); ctx.stroke();
+      });
     } else {
       // Glow halo
-      const gr = ctx.createRadialGradient(0,0,0, 0,0, this.radius*2.2);
-      gr.addColorStop(0, eyeCol+'33'); gr.addColorStop(1, 'transparent');
+      const gr = ctx.createRadialGradient(0,0,0, 0,0, this.radius*2.5);
+      gr.addColorStop(0, eyeCol+'55'); gr.addColorStop(1, 'transparent');
       ctx.fillStyle = gr;
-      ctx.beginPath(); ctx.arc(0, 0, this.radius*2.2, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, this.radius*2.5, 0, Math.PI*2); ctx.fill();
+      // Spikes on rusher when charging
+      if (this.type === 'rusher' && this.state === 'rushing') {
+        const spikes = 8;
+        ctx.beginPath();
+        for (let i = 0; i < spikes; i++) {
+          const a = (i / spikes) * Math.PI * 2;
+          const inner = this.radius - 1;
+          const outer = this.radius + 7 + Math.sin(this.glowPhase + i) * 2;
+          if (i === 0) ctx.moveTo(Math.cos(a) * outer, Math.sin(a) * outer);
+          else ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer);
+          const mid = a + Math.PI / spikes;
+          ctx.lineTo(Math.cos(mid) * inner, Math.sin(mid) * inner);
+        }
+        ctx.closePath();
+        ctx.fillStyle = eyeCol + '99';
+        ctx.fill();
+      }
       // Body
-      ctx.fillStyle = '#120015';
+      ctx.fillStyle = this.type === 'rusher' ? '#1f0800' : '#0d0020';
       ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
+      // Colored outline
+      ctx.strokeStyle = eyeCol; ctx.lineWidth = 1.5; ctx.stroke();
       // Eyes
       ctx.fillStyle = eyeCol;
-      ctx.shadowColor = eyeCol; ctx.shadowBlur = 10 * glow;
+      ctx.shadowColor = eyeCol; ctx.shadowBlur = 12 * glow;
       ctx.beginPath();
-      ctx.arc(-5, -2, 3.5, 0, Math.PI*2);
-      ctx.arc( 5, -2, 3.5, 0, Math.PI*2);
+      ctx.arc(-5, -2, this.type === 'rusher' ? 4.5 : 3.5, 0, Math.PI*2);
+      ctx.arc( 5, -2, this.type === 'rusher' ? 4.5 : 3.5, 0, Math.PI*2);
       ctx.fill();
     }
     ctx.restore();
@@ -670,17 +699,24 @@ function drawJoysticks() {
   for (const side of ['left', 'right']) {
     const stick = sticks[side];
     if (stick.id === null) continue;
-    // Outer ring
+    // Outer ring — filled base + stroke border
     ctx.beginPath();
     ctx.arc(stick.ox, stick.oy, STICK_MAX, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // Thumb dot
-    ctx.beginPath();
-    ctx.arc(stick.ox + stick.dx * STICK_MAX, stick.oy + stick.dy * STICK_MAX, 22, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // Thumb dot — filled with an outline
+    const tx = stick.ox + stick.dx * STICK_MAX;
+    const ty = stick.oy + stick.dy * STICK_MAX;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 22, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
   }
 }
 
