@@ -328,11 +328,11 @@ class Enemy {
     const psx = wx(player.x), psy = wy(player.y);
     const dx = this.sx - psx, dy = this.sy - psy;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < 75) return true;
+    if (dist < 115) return true;
     const ang = Math.atan2(dy, dx);
     let diff = Math.abs(ang - flashAngle);
     if (diff > Math.PI) diff = Math.PI*2 - diff;
-    return dist < 260 && diff < Math.PI / 4;
+    return dist < 340 && diff < Math.PI / 3.5;
   }
 
   update() {
@@ -456,24 +456,24 @@ function buildTorches() {
 // ============================================================
 function drawLighting() {
   lightCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-  lightCtx.fillStyle = 'rgba(0,0,0,0.94)';
+  lightCtx.fillStyle = 'rgba(0,0,0,0.91)';
   lightCtx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   lightCtx.globalCompositeOperation = 'destination-out';
 
   const psx = wx(player.x), psy = wy(player.y);
 
   // Ambient glow
-  const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 82);
-  ag.addColorStop(0, 'rgba(0,0,0,0.9)');
-  ag.addColorStop(0.6, 'rgba(0,0,0,0.4)');
+  const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 115);
+  ag.addColorStop(0, 'rgba(0,0,0,1.0)');
+  ag.addColorStop(0.5, 'rgba(0,0,0,0.5)');
   ag.addColorStop(1, 'rgba(0,0,0,0)');
   lightCtx.fillStyle = ag;
-  lightCtx.beginPath(); lightCtx.arc(psx, psy, 82, 0, Math.PI*2); lightCtx.fill();
+  lightCtx.beginPath(); lightCtx.arc(psx, psy, 115, 0, Math.PI*2); lightCtx.fill();
 
   // Flashlight cone
   const fa = flashAngle;
-  const ca = Math.PI / 4.5;
-  const cl = 255 * (1 + (Math.random()-0.5)*0.04);
+  const ca = Math.PI / 3.5;
+  const cl = 340 * (1 + (Math.random()-0.5)*0.04);
 
   lightCtx.save();
   lightCtx.beginPath();
@@ -483,10 +483,10 @@ function drawLighting() {
   lightCtx.clip();
 
   const cg = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, cl);
-  cg.addColorStop(0, 'rgba(0,0,0,1)');
-  cg.addColorStop(0.5, 'rgba(0,0,0,0.65)');
-  cg.addColorStop(0.85, 'rgba(0,0,0,0.25)');
-  cg.addColorStop(1, 'rgba(0,0,0,0)');
+  cg.addColorStop(0,    'rgba(0,0,0,1)');
+  cg.addColorStop(0.55, 'rgba(0,0,0,0.95)');
+  cg.addColorStop(0.82, 'rgba(0,0,0,0.55)');
+  cg.addColorStop(1,    'rgba(0,0,0,0)');
   lightCtx.fillStyle = cg;
   lightCtx.fillRect(psx-cl, psy-cl, cl*2, cl*2);
   lightCtx.restore();
@@ -546,9 +546,9 @@ function drawMap() {
         ctx.fillRect(sx+3, sy+3, TILE/2-4, TILE/3-2);
         ctx.fillRect(sx+TILE/2+2, sy+TILE/3+2, TILE/2-6, TILE/3-2);
       } else if (tile === 0) {
-        ctx.fillStyle = '#0c0910';
+        ctx.fillStyle = '#211830';
         ctx.fillRect(sx, sy, TILE, TILE);
-        ctx.strokeStyle = '#100d16';
+        ctx.strokeStyle = '#2d2240';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(sx, sy, TILE, TILE);
       } else if (tile === 2) {
