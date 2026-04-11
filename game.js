@@ -497,7 +497,9 @@ function drawLighting() {
   ag.addColorStop(0.5, 'rgba(0,0,0,0.5)');
   ag.addColorStop(1, 'rgba(0,0,0,0)');
   lightCtx.fillStyle = ag;
-  lightCtx.beginPath(); lightCtx.arc(psx, psy, 115, 0, Math.PI*2); lightCtx.fill();
+  // fillRect instead of arc so the glow isn't clipped at canvas edges
+  // when the camera is clamped — gradient alpha=0 acts as the natural boundary
+  lightCtx.fillRect(psx - 115, psy - 115, 230, 230);
 
   // Flashlight cone
   const fa = flashAngle;
@@ -532,7 +534,7 @@ function drawLighting() {
     tg.addColorStop(0.5,'rgba(0,0,0,0.25)');
     tg.addColorStop(1, 'rgba(0,0,0,0)');
     lightCtx.fillStyle = tg;
-    lightCtx.beginPath(); lightCtx.arc(tx, ty, rad, 0, Math.PI*2); lightCtx.fill();
+    lightCtx.fillRect(tx - rad, ty - rad, rad * 2, rad * 2);
   });
 
   // Enemy glowing eyes bleed through darkness
@@ -566,20 +568,35 @@ function drawMap() {
       const sx = wx(tx*TILE), sy = wy(ty*TILE);
 
       if (tile === 1) {
-        ctx.fillStyle = '#19141f';
+        // Wall — darker base with bevel edges to read as a raised block
+        ctx.fillStyle = '#0f0d14';
         ctx.fillRect(sx, sy, TILE, TILE);
-        ctx.strokeStyle = '#231b2c';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(sx+0.5, sy+0.5, TILE-1, TILE-1);
-        ctx.fillStyle = '#1e1828';
+        // Stone texture detail rects
+        ctx.fillStyle = '#171320';
         ctx.fillRect(sx+3, sy+3, TILE/2-4, TILE/3-2);
         ctx.fillRect(sx+TILE/2+2, sy+TILE/3+2, TILE/2-6, TILE/3-2);
+        // Top & left bright bevel (raised-block highlight)
+        ctx.strokeStyle = 'rgba(180,150,220,0.28)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + TILE);
+        ctx.lineTo(sx, sy);
+        ctx.lineTo(sx + TILE, sy);
+        ctx.stroke();
+        // Bottom & right dark bevel (raised-block shadow)
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.moveTo(sx + TILE, sy);
+        ctx.lineTo(sx + TILE, sy + TILE);
+        ctx.lineTo(sx, sy + TILE);
+        ctx.stroke();
       } else if (tile === 0) {
-        ctx.fillStyle = '#211830';
+        // Floor — lighter/warmer purple, inset border to read as a recessed tile
+        ctx.fillStyle = '#271d38';
         ctx.fillRect(sx, sy, TILE, TILE);
-        ctx.strokeStyle = '#2d2240';
+        ctx.strokeStyle = 'rgba(90,65,130,0.45)';
         ctx.lineWidth = 0.5;
-        ctx.strokeRect(sx, sy, TILE, TILE);
+        ctx.strokeRect(sx + 2, sy + 2, TILE - 4, TILE - 4);
       } else if (tile === 2) {
         ctx.fillStyle = '#081508';
         ctx.fillRect(sx, sy, TILE, TILE);
