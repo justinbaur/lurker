@@ -11,14 +11,18 @@ const lightCtx = lightCanvas.getContext('2d');
 let CANVAS_W = 800, CANVAS_H = 560;
 
 function resize() {
-  const W = Math.min(window.innerWidth, 900);
-  const H = Math.min(window.innerHeight - 10, 580);
+  const vp = window.visualViewport;
+  const viewW = vp ? vp.width : window.innerWidth;
+  const viewH = vp ? vp.height : window.innerHeight;
+  const W = Math.min(viewW, 700);
+  const H = Math.min(viewH - 20, 440);
   canvas.width = W; canvas.height = H;
   lightCanvas.width = W; lightCanvas.height = H;
   CANVAS_W = W; CANVAS_H = H;
 }
 resize();
 window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
 // ============================================================
 // MAP  (0=floor, 1=wall, 2=exit)
