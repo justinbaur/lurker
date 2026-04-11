@@ -69,12 +69,49 @@ canvas.addEventListener('mousemove', e => {
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
 });
-canvas.addEventListener('touchmove', e => {
+
+const STICK_MAX = 65;
+const sticks = {
+  left:  { id: null, ox: 0, oy: 0, dx: 0, dy: 0 },
+  right: { id: null, ox: 0, oy: 0, dx: 0, dy: 0 },
+};
+let flashAngle = 0;
+
+function _stickFromTouch(stick, touch) {
+  const r = canvas.getBoundingClientRect();
+  const dx = touch.clientX - r.left - stick.ox;
+  const dy = touch.clientY - r.top  - stick.oy;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  stick.dx = dist > 0 ? dx / Math.max(dist, STICK_MAX) : 0;
+  stick.dy = dist > 0 ? dy / Math.max(dist, STICK_MAX) : 0;
+}
+function _clearStick(id) {
+  for (const s of ['left', 'right']) {
+    if (sticks[s].id === id) { sticks[s].id = null; sticks[s].dx = 0; sticks[s].dy = 0; }
+  }
+}
+canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   const r = canvas.getBoundingClientRect();
-  mouseX = e.touches[0].clientX - r.left;
-  mouseY = e.touches[0].clientY - r.top;
+  for (const t of e.changedTouches) {
+    const cx = t.clientX - r.left;
+    const side = cx < CANVAS_W / 2 ? 'left' : 'right';
+    const st = sticks[side];
+    if (st.id === null) {
+      st.id = t.identifier; st.ox = cx; st.oy = t.clientY - r.top; st.dx = 0; st.dy = 0;
+    }
+  }
 }, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    for (const s of ['left', 'right']) {
+      if (sticks[s].id === t.identifier) _stickFromTouch(sticks[s], t);
+    }
+  }
+}, { passive: false });
+canvas.addEventListener('touchend',    e => { e.preventDefault(); for (const t of e.changedTouches) _clearStick(t.identifier); }, { passive: false });
+canvas.addEventListener('touchcancel', e => { e.preventDefault(); for (const t of e.changedTouches) _clearStick(t.identifier); }, { passive: false });
 
 // ============================================================
 // AUDIO
@@ -159,20 +196,35 @@ function wy(wy) { return wy - camera.y; }
 // ============================================================
 const player = {
   x: 72, y: 72,
-  speed: 3, radius: 13,
+  speed: 3, radius: 17,
   health: 100, maxHealth: 100,
   angle: 0,
   invincible: 0,
   stepTimer: 0,
 };
 
+function updateFlashAngle() {
+  if (sticks.right.id !== null && (sticks.right.dx || sticks.right.dy)) {
+    flashAngle = Math.atan2(sticks.right.dy, sticks.right.dx);
+  } else if (sticks.left.id !== null && (sticks.left.dx || sticks.left.dy)) {
+    flashAngle = Math.atan2(sticks.left.dy, sticks.left.dx);
+  } else {
+    flashAngle = Math.atan2(mouseY - wy(player.y), mouseX - wx(player.x));
+  }
+}
+
 function updatePlayer() {
   let dx = 0, dy = 0;
-  if (keys['KeyW'] || keys['ArrowUp'])    dy = -1;
-  if (keys['KeyS'] || keys['ArrowDown'])  dy =  1;
-  if (keys['KeyA'] || keys['ArrowLeft'])  dx = -1;
-  if (keys['KeyD'] || keys['ArrowRight']) dx =  1;
-  if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  if (sticks.left.id !== null) {
+    dx = sticks.left.dx;
+    dy = sticks.left.dy;
+  } else {
+    if (keys['KeyW'] || keys['ArrowUp'])    dy = -1;
+    if (keys['KeyS'] || keys['ArrowDown'])  dy =  1;
+    if (keys['KeyA'] || keys['ArrowLeft'])  dx = -1;
+    if (keys['KeyD'] || keys['ArrowRight']) dx =  1;
+    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  }
 
   const sp = player.speed;
   const r  = player.radius;
@@ -196,7 +248,8 @@ function updatePlayer() {
     }
   }
 
-  player.angle = Math.atan2(mouseY - wy(player.y), mouseX - wx(player.x));
+  updateFlashAngle();
+  player.angle = flashAngle;
   if (player.invincible > 0) player.invincible--;
 
   if (dx || dy) {
@@ -275,12 +328,11 @@ class Enemy {
     const psx = wx(player.x), psy = wy(player.y);
     const dx = this.sx - psx, dy = this.sy - psy;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < 65) return true;
+    if (dist < 75) return true;
     const ang = Math.atan2(dy, dx);
-    const flash = Math.atan2(mouseY - psy, mouseX - psx);
-    let diff = Math.abs(ang - flash);
+    let diff = Math.abs(ang - flashAngle);
     if (diff > Math.PI) diff = Math.PI*2 - diff;
-    return dist < 250 && diff < Math.PI / 4;
+    return dist < 260 && diff < Math.PI / 4;
   }
 
   update() {
@@ -411,15 +463,15 @@ function drawLighting() {
   const psx = wx(player.x), psy = wy(player.y);
 
   // Ambient glow
-  const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 68);
+  const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 82);
   ag.addColorStop(0, 'rgba(0,0,0,0.9)');
   ag.addColorStop(0.6, 'rgba(0,0,0,0.4)');
   ag.addColorStop(1, 'rgba(0,0,0,0)');
   lightCtx.fillStyle = ag;
-  lightCtx.beginPath(); lightCtx.arc(psx, psy, 68, 0, Math.PI*2); lightCtx.fill();
+  lightCtx.beginPath(); lightCtx.arc(psx, psy, 82, 0, Math.PI*2); lightCtx.fill();
 
   // Flashlight cone
-  const fa = Math.atan2(mouseY - psy, mouseX - psx);
+  const fa = flashAngle;
   const ca = Math.PI / 4.5;
   const cl = 255 * (1 + (Math.random()-0.5)*0.04);
 
@@ -612,6 +664,27 @@ function triggerWin() {
 }
 
 // ============================================================
+// JOYSTICK HUD
+// ============================================================
+function drawJoysticks() {
+  for (const side of ['left', 'right']) {
+    const stick = sticks[side];
+    if (stick.id === null) continue;
+    // Outer ring
+    ctx.beginPath();
+    ctx.arc(stick.ox, stick.oy, STICK_MAX, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Thumb dot
+    ctx.beginPath();
+    ctx.arc(stick.ox + stick.dx * STICK_MAX, stick.oy + stick.dy * STICK_MAX, 22, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fill();
+  }
+}
+
+// ============================================================
 // GAME LOOP
 // ============================================================
 function gameLoop() {
@@ -638,6 +711,8 @@ function gameLoop() {
   drawLighting();
 
   ctx.restore();
+
+  drawJoysticks();
 
   // Edge vignette
   const vig = ctx.createRadialGradient(CANVAS_W/2, CANVAS_H/2, CANVAS_H*0.28, CANVAS_W/2, CANVAS_H/2, CANVAS_H*0.82);
