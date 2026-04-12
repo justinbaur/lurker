@@ -60,6 +60,10 @@ function tileAt(tx, ty) {
 }
 function isSolid(tx, ty) { return tileAt(tx, ty) === 1; }
 
+// Wall segments cached at game start (world-pixel coords)
+let wallSegments = []; // [{x1,y1,x2,y2}]
+let wallCorners  = []; // [{x,y}] unique endpoints
+
 // ============================================================
 // INPUT
 // ============================================================
@@ -333,11 +337,16 @@ class Enemy {
     const psx = wx(player.x), psy = wy(player.y);
     const dx = this.sx - psx, dy = this.sy - psy;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < 60) return true;
+    // Ambient glow range — check wall occlusion
+    if (dist < 60) return hasLOS(player.x, player.y, this.x, this.y);
+    // Flashlight cone range — check angle then wall occlusion
     const ang = Math.atan2(dy, dx);
-    let diff = Math.abs(ang - flashAngle);
-    if (diff > Math.PI) diff = Math.PI*2 - diff;
-    return dist < 340 && diff < Math.PI / 3.5;
+    let diff = ang - flashAngle;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (dist < 340 && Math.abs(diff) < Math.PI / 3.5)
+      return hasLOS(player.x, player.y, this.x, this.y);
+    return false;
   }
 
   update() {
@@ -484,6 +493,190 @@ function buildTorches() {
   }
 }
 
+function buildWallSegments() {
+  wallSegments = [];
+  // Horizontal segments: sweep each row for top-face and bottom-face runs
+  for (let ty = 0; ty < MAP_H_TILES; ty++) {
+    let runStart = -1;
+    for (let tx = 0; tx <= MAP_W_TILES; tx++) {
+      const active = tx < MAP_W_TILES && isSolid(tx, ty) && !isSolid(tx, ty - 1);
+      if (active && runStart < 0) { runStart = tx; }
+      else if (!active && runStart >= 0) {
+        wallSegments.push({ x1: runStart*TILE, y1: ty*TILE, x2: tx*TILE, y2: ty*TILE });
+        runStart = -1;
+      }
+    }
+    runStart = -1;
+    for (let tx = 0; tx <= MAP_W_TILES; tx++) {
+      const active = tx < MAP_W_TILES && isSolid(tx, ty) && !isSolid(tx, ty + 1);
+      if (active && runStart < 0) { runStart = tx; }
+      else if (!active && runStart >= 0) {
+        wallSegments.push({ x1: runStart*TILE, y1: (ty+1)*TILE, x2: tx*TILE, y2: (ty+1)*TILE });
+        runStart = -1;
+      }
+    }
+  }
+  // Vertical segments: sweep each column for left-face and right-face runs
+  for (let tx = 0; tx < MAP_W_TILES; tx++) {
+    let runStart = -1;
+    for (let ty = 0; ty <= MAP_H_TILES; ty++) {
+      const active = ty < MAP_H_TILES && isSolid(tx, ty) && !isSolid(tx - 1, ty);
+      if (active && runStart < 0) { runStart = ty; }
+      else if (!active && runStart >= 0) {
+        wallSegments.push({ x1: tx*TILE, y1: runStart*TILE, x2: tx*TILE, y2: ty*TILE });
+        runStart = -1;
+      }
+    }
+    runStart = -1;
+    for (let ty = 0; ty <= MAP_H_TILES; ty++) {
+      const active = ty < MAP_H_TILES && isSolid(tx, ty) && !isSolid(tx + 1, ty);
+      if (active && runStart < 0) { runStart = ty; }
+      else if (!active && runStart >= 0) {
+        wallSegments.push({ x1: (tx+1)*TILE, y1: runStart*TILE, x2: (tx+1)*TILE, y2: ty*TILE });
+        runStart = -1;
+      }
+    }
+  }
+  // Collect unique corners from all segments
+  wallCorners = [];
+  const seen = new Map();
+  for (const s of wallSegments) {
+    const k1 = s.x1 + ',' + s.y1, k2 = s.x2 + ',' + s.y2;
+    if (!seen.has(k1)) { seen.set(k1, true); wallCorners.push({ x: s.x1, y: s.y1 }); }
+    if (!seen.has(k2)) { seen.set(k2, true); wallCorners.push({ x: s.x2, y: s.y2 }); }
+  }
+}
+
+// ============================================================
+// SHADOW / RAYCASTING HELPERS
+// ============================================================
+
+// Returns parametric t of ray (ox,oy)+(dx,dy)*t hitting segment (ax,ay)-(bx,by), or Infinity
+function raySegIntersect(ox, oy, dx, dy, ax, ay, bx, by) {
+  const segDx = bx - ax, segDy = by - ay;
+  const denom = dx * segDy - dy * segDx;
+  if (Math.abs(denom) < 1e-10) return Infinity;
+  const t = ((ax - ox) * segDy - (ay - oy) * segDx) / denom;
+  const u = ((ax - ox) * dy   - (ay - oy) * dx)    / denom;
+  if (t < -1e-9 || u < -1e-9 || u > 1 + 1e-9) return Infinity;
+  return t;
+}
+
+// Fast AABB reject: is segment (x1,y1)-(x2,y2) within maxR of point (lx,ly)?
+function segInRange(lx, ly, maxR, x1, y1, x2, y2) {
+  return lx >= Math.min(x1, x2) - maxR && lx <= Math.max(x1, x2) + maxR &&
+         ly >= Math.min(y1, y2) - maxR && ly <= Math.max(y1, y2) + maxR;
+}
+
+// True if there is a clear line-of-sight between world points (ax,ay) and (bx,by)
+function hasLOS(ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1) return true;
+  const udx = dx / dist, udy = dy / dist;
+  const midX = (ax + bx) / 2, midY = (ay + by) / 2;
+  for (const s of wallSegments) {
+    if (!segInRange(midX, midY, dist / 2 + 1, s.x1, s.y1, s.x2, s.y2)) continue;
+    const t = raySegIntersect(ax, ay, udx, udy, s.x1, s.y1, s.x2, s.y2);
+    if (t > 0.5 && t < dist - 0.5) return false;
+  }
+  return true;
+}
+
+// Build visibility polygon for light at world (lx,ly) with radius maxR.
+// isCone=true restricts to cone [coneCenter±coneHalf]. Returns [{x,y}] in world space.
+function computeVisibilityPoly(lx, ly, maxR, isCone, coneCenter, coneHalf) {
+  const EPS = 0.00015;
+  const ARC_STEP = 0.15;
+
+  // Gather segments and corners within range
+  const localSegs = [];
+  const localCorners = [];
+  const seenC = new Map();
+  for (const s of wallSegments) {
+    if (!segInRange(lx, ly, maxR, s.x1, s.y1, s.x2, s.y2)) continue;
+    localSegs.push(s);
+    for (const [cx, cy] of [[s.x1, s.y1], [s.x2, s.y2]]) {
+      const key = cx + ',' + cy;
+      if (!seenC.has(key)) { seenC.set(key, true); localCorners.push({ x: cx, y: cy }); }
+    }
+  }
+
+  // Normalize angle helper: keep in [-PI, PI] for full circle; within cone range for cone
+  const normAngle = isCone
+    ? (a) => { let d = a - coneCenter; while (d > Math.PI) d -= 2*Math.PI; while (d < -Math.PI) d += 2*Math.PI; return coneCenter + d; }
+    : (a) => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
+
+  // Build angle list from wall corners (+ epsilon offsets for crisp shadow edges)
+  const angles = [];
+  if (isCone) {
+    angles.push(coneCenter - coneHalf, coneCenter + coneHalf);
+  }
+  for (const c of localCorners) {
+    const base = Math.atan2(c.y - ly, c.x - lx);
+    const na = normAngle(base);
+    if (isCone && Math.abs(na - coneCenter) > coneHalf + EPS * 2) continue;
+    angles.push(na - EPS, na, na + EPS);
+  }
+  // Fill in arc boundary with regular samples so max-radius arcs are smooth
+  if (isCone) {
+    for (let a = coneCenter - coneHalf; a <= coneCenter + coneHalf; a += ARC_STEP) angles.push(a);
+  } else {
+    for (let a = -Math.PI; a < Math.PI; a += ARC_STEP) angles.push(a);
+  }
+  angles.sort((a, b) => a - b);
+
+  // Cast each ray and find the closest intersection
+  const hits = [];
+  for (const angle of angles) {
+    // Clamp cone edges exactly
+    const clampedAngle = isCone ? Math.max(coneCenter - coneHalf, Math.min(coneCenter + coneHalf, angle)) : angle;
+    const dx = Math.cos(clampedAngle), dy = Math.sin(clampedAngle);
+    let minT = maxR;
+    for (const s of localSegs) {
+      const t = raySegIntersect(lx, ly, dx, dy, s.x1, s.y1, s.x2, s.y2);
+      if (t < minT) minT = t;
+    }
+    hits.push({ angle: clampedAngle, x: lx + dx * minT, y: ly + dy * minT, atMax: minT >= maxR - 0.5 });
+  }
+
+  // Build polygon, inserting arc interpolation between consecutive max-radius hits
+  const poly = [];
+  if (isCone) poly.push({ x: lx, y: ly }); // sector origin
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i];
+    poly.push({ x: h.x, y: h.y });
+    const next = hits[(i + 1) % hits.length];
+    if (h.atMax && next.atMax) {
+      let a1 = h.angle, a2 = next.angle;
+      let da = a2 - a1;
+      if (!isCone && da < 0) da += 2 * Math.PI;
+      if (da > 0) {
+        const steps = Math.ceil(da / ARC_STEP);
+        for (let j = 1; j < steps; j++) {
+          const a = a1 + da * j / steps;
+          poly.push({ x: lx + Math.cos(a) * maxR, y: ly + Math.sin(a) * maxR });
+        }
+      }
+    }
+  }
+  return poly;
+}
+
+// Clip lightCtx to visibility polygon (world space) then fill with gradient (screen space)
+function drawVisibilityPoly(poly, maxR, screenLx, screenLy, gradient) {
+  if (poly.length < 3) return;
+  lightCtx.save();
+  lightCtx.beginPath();
+  lightCtx.moveTo(wx(poly[0].x), wy(poly[0].y));
+  for (let i = 1; i < poly.length; i++) lightCtx.lineTo(wx(poly[i].x), wy(poly[i].y));
+  lightCtx.closePath();
+  lightCtx.clip();
+  lightCtx.fillStyle = gradient;
+  lightCtx.fillRect(screenLx - maxR, screenLy - maxR, maxR * 2, maxR * 2);
+  lightCtx.restore();
+}
+
 // ============================================================
 // LIGHTING
 // ============================================================
@@ -495,53 +688,42 @@ function drawLighting() {
 
   const psx = wx(player.x), psy = wy(player.y);
 
-  // Ambient glow
+  // Ambient glow — small radius, no occlusion needed
   const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 60);
   ag.addColorStop(0, 'rgba(0,0,0,0.7)');
   ag.addColorStop(0.5, 'rgba(0,0,0,0.25)');
   ag.addColorStop(1, 'rgba(0,0,0,0)');
   lightCtx.fillStyle = ag;
-  // fillRect instead of arc so the glow isn't clipped at canvas edges
-  // when the camera is clamped — gradient alpha=0 acts as the natural boundary
   lightCtx.fillRect(psx - 60, psy - 60, 120, 120);
 
-  // Flashlight cone
+  // Flashlight cone — wall-occluded visibility polygon
   const fa = flashAngle;
   const ca = Math.PI / 3.5;
   const cl = 340 * (1 + (Math.random()-0.5)*0.04);
-
-  lightCtx.save();
-  lightCtx.beginPath();
-  lightCtx.moveTo(psx, psy);
-  lightCtx.arc(psx, psy, cl, fa - ca, fa + ca);
-  lightCtx.closePath();
-  lightCtx.clip();
-
+  const flashPoly = computeVisibilityPoly(player.x, player.y, cl, true, fa, ca);
   const cg = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, cl);
   cg.addColorStop(0,    'rgba(0,0,0,1)');
   cg.addColorStop(0.55, 'rgba(0,0,0,0.95)');
   cg.addColorStop(0.82, 'rgba(0,0,0,0.55)');
   cg.addColorStop(1,    'rgba(0,0,0,0)');
-  lightCtx.fillStyle = cg;
-  lightCtx.fillRect(psx-cl, psy-cl, cl*2, cl*2);
-  lightCtx.restore();
+  drawVisibilityPoly(flashPoly, cl, psx, psy, cg);
 
-  // Torches
+  // Torches — wall-occluded visibility polygon
   torches.forEach(t => {
-    const tx = wx(t.x), ty = wy(t.y);
-    if (tx < -120 || tx > CANVAS_W+120 || ty < -120 || ty > CANVAS_H+120) return;
+    const tsx = wx(t.x), tsy = wy(t.y);
+    if (tsx < -120 || tsx > CANVAS_W+120 || tsy < -120 || tsy > CANVAS_H+120) return;
     t.phase += 0.09;
     const fl = t.intensity + Math.sin(t.phase)*0.15 + Math.sin(t.phase*2.3)*0.08;
     const rad = 58 * fl;
-    const tg = lightCtx.createRadialGradient(tx,ty,0, tx,ty,rad);
+    const torchPoly = computeVisibilityPoly(t.x, t.y, rad, false, 0, 0);
+    const tg = lightCtx.createRadialGradient(tsx, tsy, 0, tsx, tsy, rad);
     tg.addColorStop(0, 'rgba(0,0,0,0.55)');
     tg.addColorStop(0.5,'rgba(0,0,0,0.25)');
     tg.addColorStop(1, 'rgba(0,0,0,0)');
-    lightCtx.fillStyle = tg;
-    lightCtx.fillRect(tx - rad, ty - rad, rad * 2, rad * 2);
+    drawVisibilityPoly(torchPoly, rad, tsx, tsy, tg);
   });
 
-  // Enemy glowing eyes bleed through darkness
+  // Enemy glowing eyes bleed through darkness (intentional horror mechanic)
   enemies.forEach(e => {
     if (e.state === 'frozen') return;
     const sx = e.sx, sy = e.sy;
@@ -681,6 +863,7 @@ function startGame() {
   ];
 
   buildTorches();
+  buildWallSegments();
   document.getElementById('overlay').style.display = 'none';
   gameState = 'playing';
   startHeartbeat(false);
