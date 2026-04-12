@@ -708,19 +708,24 @@ function drawLighting() {
   cg.addColorStop(1,    'rgba(0,0,0,0)');
   drawVisibilityPoly(flashPoly, cl, psx, psy, cg);
 
-  // Torches — wall-occluded visibility polygon
+  // Torches — simple radial gradient (fillRect avoids canvas-edge clipping).
+  // Torches are placed at the centre of wall tiles so their origin is always
+  // inside a wall; computeVisibilityPoly would clip to the wall's own face
+  // segments, producing a polygon that never reaches the adjacent floor and
+  // leaves corridors dark.  A plain fillRect lets the gradient bleed naturally
+  // into the neighbouring floor tiles, which is the intended look.
   torches.forEach(t => {
     const tsx = wx(t.x), tsy = wy(t.y);
     if (tsx < -120 || tsx > CANVAS_W+120 || tsy < -120 || tsy > CANVAS_H+120) return;
     t.phase += 0.09;
     const fl = t.intensity + Math.sin(t.phase)*0.15 + Math.sin(t.phase*2.3)*0.08;
     const rad = 58 * fl;
-    const torchPoly = computeVisibilityPoly(t.x, t.y, rad, false, 0, 0);
     const tg = lightCtx.createRadialGradient(tsx, tsy, 0, tsx, tsy, rad);
     tg.addColorStop(0, 'rgba(0,0,0,0.55)');
     tg.addColorStop(0.5,'rgba(0,0,0,0.25)');
     tg.addColorStop(1, 'rgba(0,0,0,0)');
-    drawVisibilityPoly(torchPoly, rad, tsx, tsy, tg);
+    lightCtx.fillStyle = tg;
+    lightCtx.fillRect(tsx - rad, tsy - rad, rad * 2, rad * 2);
   });
 
   // Enemy glowing eyes bleed through darkness (intentional horror mechanic)
