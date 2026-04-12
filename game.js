@@ -333,7 +333,7 @@ class Enemy {
     const psx = wx(player.x), psy = wy(player.y);
     const dx = this.sx - psx, dy = this.sy - psy;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < 115) return true;
+    if (dist < 60) return true;
     const ang = Math.atan2(dy, dx);
     let diff = Math.abs(ang - flashAngle);
     if (diff > Math.PI) diff = Math.PI*2 - diff;
@@ -496,14 +496,14 @@ function drawLighting() {
   const psx = wx(player.x), psy = wy(player.y);
 
   // Ambient glow
-  const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 115);
-  ag.addColorStop(0, 'rgba(0,0,0,1.0)');
-  ag.addColorStop(0.5, 'rgba(0,0,0,0.5)');
+  const ag = lightCtx.createRadialGradient(psx, psy, 0, psx, psy, 60);
+  ag.addColorStop(0, 'rgba(0,0,0,0.7)');
+  ag.addColorStop(0.5, 'rgba(0,0,0,0.25)');
   ag.addColorStop(1, 'rgba(0,0,0,0)');
   lightCtx.fillStyle = ag;
   // fillRect instead of arc so the glow isn't clipped at canvas edges
   // when the camera is clamped — gradient alpha=0 acts as the natural boundary
-  lightCtx.fillRect(psx - 115, psy - 115, 230, 230);
+  lightCtx.fillRect(psx - 60, psy - 60, 120, 120);
 
   // Flashlight cone
   const fa = flashAngle;
