@@ -1,0 +1,4 @@
+- Exit to menu
+- Boss mechanic
+- Sprite? Impact performance?
+- volume options

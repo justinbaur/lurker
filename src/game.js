@@ -330,8 +330,6 @@ class Enemy {
     const psx = wx(player.x), psy = wy(player.y);
     const dx = this.sx - psx, dy = this.sy - psy;
     const dist = Math.sqrt(dx*dx + dy*dy);
-    // Ambient glow range — check wall occlusion
-    if (dist < 60) return hasLOS(player.x, player.y, this.x, this.y);
     // Flashlight cone range — check angle then wall occlusion
     const ang = Math.atan2(dy, dx);
     let diff = ang - flashAngle;
