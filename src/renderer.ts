@@ -121,20 +121,100 @@ export function drawPlayer(
   player: PlayerState,
   frameCount: number,
 ): void {
+  // Invincibility flicker
   if (player.invincible > 0 && frameCount % 6 < 3) return;
-  const sx = player.x - camera.x, sy = player.y - camera.y;
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+
+  const sx = player.x - camera.x;
+  const sy = player.y - camera.y;
+
+  // Low-health tremor: positional jitter increases as sanity drains
+  const healthFrac = player.health / player.maxHealth;
+  const tremorAmt  = healthFrac < 0.5 ? (1 - healthFrac * 2) * 1.6 : 0;
+  const jx = (Math.random() - 0.5) * tremorAmt;
+  const jy = (Math.random() - 0.5) * tremorAmt;
+
+  // Idle breathing (subtle scale pulse)
+  const breathe = 1 + Math.sin(frameCount * 0.07) * 0.025;
+
+  // Lantern flicker — two overlapping sine waves for organic feel
+  const lanternBright = 0.82 + Math.sin(frameCount * 0.13) * 0.14 + Math.sin(frameCount * 0.29) * 0.04;
+
+  // Body tint desaturates slightly toward pale gray at low health
+  const bodyHi = healthFrac > 0.5 ? '#9a7048' : '#8a6858';
+  const bodyLo = healthFrac > 0.5 ? '#5a3a20' : '#3d2828';
+  const headCol = healthFrac > 0.5 ? '#c09060' : '#a07870';
+
+  ctx.save();
+  ctx.translate(sx + jx, sy + jy);
+  ctx.rotate(player.angle + Math.PI / 2); // flashlight direction → -Y axis in local space
+  ctx.scale(breathe, breathe);
+
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.beginPath();
-  ctx.ellipse(sx + 2, sy + 5, player.radius * 0.8, player.radius * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(2, 7, 9, 4, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = '#c8a060';
-  ctx.beginPath(); ctx.arc(sx, sy, player.radius, 0, Math.PI * 2); ctx.fill();
-  const fx = Math.cos(player.angle) * (player.radius + 5);
-  const fy = Math.sin(player.angle) * (player.radius + 5);
-  ctx.fillStyle = '#ffee88';
-  ctx.beginPath(); ctx.arc(sx + fx, sy + fy, 3.5, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#a07840'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(sx, sy, player.radius, 0, Math.PI * 2); ctx.stroke();
+
+  // Body — egg silhouette: narrow at head-end (-Y), wide at shoulders (+Y)
+  ctx.beginPath();
+  ctx.moveTo(0, -5);
+  ctx.bezierCurveTo( 5.5, -3,  6.2,  4,  4.5,  8);
+  ctx.bezierCurveTo( 2.5, 10.5, -2.5, 10.5, -4.5, 8);
+  ctx.bezierCurveTo(-6.2,  4, -5.5, -3,  0,  -5);
+  ctx.closePath();
+
+  const bodyGrad = ctx.createLinearGradient(0, -5, 0, 10);
+  bodyGrad.addColorStop(0, bodyHi);
+  bodyGrad.addColorStop(1, bodyLo);
+  ctx.fillStyle   = bodyGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(20,8,2,0.65)';
+  ctx.lineWidth   = 0.8;
+  ctx.stroke();
+
+  // Arm — right shoulder curving forward to lantern hand
+  ctx.strokeStyle = '#7a5030';
+  ctx.lineWidth   = 2;
+  ctx.lineCap     = 'round';
+  ctx.beginPath();
+  ctx.moveTo(3.5, -1.5);
+  ctx.quadraticCurveTo(2, -7, 0.5, -14);
+  ctx.stroke();
+
+  // Lantern body
+  ctx.fillStyle   = '#2e1a06';
+  ctx.fillRect(-2.5, -17, 5, 5);
+  ctx.strokeStyle = '#5a3a14';
+  ctx.lineWidth   = 0.8;
+  ctx.strokeRect(-2.5, -17, 5, 5);
+
+  // Lantern warm halo
+  const glowR = 9 * lanternBright;
+  const lg    = ctx.createRadialGradient(0, -14.5, 0, 0, -14.5, glowR);
+  lg.addColorStop(0,    `rgba(255,215,70,${0.9  * lanternBright})`);
+  lg.addColorStop(0.35, `rgba(255,130,20,${0.45 * lanternBright})`);
+  lg.addColorStop(1,    'rgba(255,60,0,0)');
+  ctx.fillStyle = lg;
+  ctx.beginPath();
+  ctx.arc(0, -14.5, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Lantern core hotspot
+  ctx.fillStyle = `rgba(255,245,180,${lanternBright})`;
+  ctx.beginPath();
+  ctx.arc(0, -14.5, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle   = headCol;
+  ctx.beginPath();
+  ctx.arc(0, -8.5, 3.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(40,18,5,0.6)';
+  ctx.lineWidth   = 0.7;
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 // ─── Lighting ────────────────────────────────────────────────

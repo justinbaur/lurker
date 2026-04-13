@@ -2,12 +2,13 @@
 
 ## Project Overview
 
-**LURKER** is a top-down browser horror game built with vanilla JavaScript and the Canvas 2D API. The core mechanic revolves around a flashlight that freezes enemies: while illuminated, enemies are paralyzed; the moment they leave the light, they rush toward the player.
+**LURKER** is a top-down browser horror game built with TypeScript, compiled to vanilla JS via Vite. The core mechanic revolves around a flashlight that freezes enemies: while illuminated, enemies are paralyzed; the moment they leave the light, they rush toward the player.
 
-- **Technology**: Vanilla JS (no frameworks), Canvas 2D, Web Audio API
+- **Technology**: TypeScript (strict), Canvas 2D, Web Audio API — Vite bundles to vanilla JS
 - **Levels**: Static tile-based mazes (48px tiles) defined in JSON
 - **Controls**: Keyboard (WASD/arrows) or touchscreen (dual virtual joysticks)
 - **Win condition**: Navigate maze, find EXIT tile, escape without losing all sanity
+- **Build**: `npm run build` → `dist/` (GitHub Pages) · `npm run typecheck` → `tsc --noEmit`
 
 ---
 
@@ -56,7 +57,7 @@ Enemies operate in three states:
 
 ### How Enemies Detect & Chase the Player
 
-**Detection happens in `Enemy.isIlluminated()`** (game.js:336–350):
+**Detection happens in `Enemy.isIlluminated()`** ([src/enemy.ts](src/enemy.ts)):
 
 ```javascript
 isIlluminated() {
@@ -150,7 +151,7 @@ Both types hunt differently when they detect you:
 
 ### The Line-of-Sight Check: `hasLOS()`
 
-Lighting and detection are blocked by walls. The `hasLOS()` function (game.js:572–584) uses raycasting:
+Lighting and detection are blocked by walls. The `hasLOS()` function ([src/raycasting.ts](src/raycasting.ts)) uses raycasting:
 
 ```javascript
 function hasLOS(ax, ay, bx, by) {
@@ -214,7 +215,7 @@ ctx.globalCompositeOperation = 'source-over';  // Reset
 
 ### Visibility Polygon Computation
 
-The `computeVisibilityPoly()` function (game.js:588+) builds a 2D polygon representing the illuminated area:
+The `computeVisibilityPoly()` function ([src/raycasting.ts](src/raycasting.ts)) builds a 2D polygon representing the illuminated area:
 
 1. **Gather nearby wall segments** within max range (AABB acceleration)
 2. **Process each wall corner** — compute shadow rays
@@ -321,18 +322,20 @@ The faster heartbeat at low health creates auditory pressure, signaling danger.
 
 ### Camera System
 
-```javascript
-function camUpdate() {
-  camera.x = player.x - CANVAS_W / 2;  // Center on player
-  camera.y = player.y - CANVAS_H / 2;
-  // Clamp to map bounds
-  camera.x = Math.max(0, Math.min(camera.x, MAP_W * TILE - CANVAS_W));
-  camera.y = Math.max(0, Math.min(camera.y, MAP_H * TILE - CANVAS_H));
-}
+Defined in [src/renderer.ts](src/renderer.ts). Takes explicit parameters — no shared globals.
 
+```typescript
 // World-to-screen conversion helpers
-function wx(worldX) { return worldX - camera.x; }
-function wy(worldY) { return worldY - camera.y; }
+export function wx(camera: CameraState, worldX: number): number { return worldX - camera.x; }
+export function wy(camera: CameraState, worldY: number): number { return worldY - camera.y; }
+
+export function camUpdate(camera, player, canvasW, canvasH): void {
+  camera.x = player.x - canvasW / 2;  // Center on player
+  camera.y = player.y - canvasH / 2;
+  // Clamp to map bounds
+  camera.x = Math.max(0, Math.min(camera.x, mapWidthTiles()  * TILE - canvasW));
+  camera.y = Math.max(0, Math.min(camera.y, mapHeightTiles() * TILE - canvasH));
+}
 ```
 
 The camera follows the player, clamped to map bounds to prevent black borders.
@@ -446,33 +449,27 @@ TITLE → PLAYING → WIN | GAMEOVER
 
 ### Start
 
-```javascript
-function startGame() {
-  player position = (72, 72)  // Top-left spawn
-  player health = 100
-  
-  enemies = [
-    Enemy(5*48+24,  1*48+24, 'stalker'),
-    Enemy(12*48+24, 3*48+24, 'stalker'),
-    Enemy(3*48+24,  9*48+24, 'rusher'),
-    // ... 3 more
-  ];
-  
-  buildTorches();       // Procedurally place on walls
-  buildWallSegments();  // Cache wall geometry for raycasting
-  startHeartbeat(false);
+See `startGame()` → `showLevelIntro()` → `startLevel()` in [src/gamestate.ts](src/gamestate.ts).
+
+```typescript
+function startLevel(levelIndex: number): void {
+  loadMap(levelData);                   // map.ts: parse JSON tiles
+  player.x = levelData.playerStart[0] * TILE;
+  enemies = levelData.enemies.map(e => makeEnemy(...));
+  torches = buildTorches();             // map.ts: random torch placement
+  ({ segments: wallSegments } = buildWallSegments());  // cache for raycasting
+  gameState = 'playing';
   requestAnimationFrame(gameLoop);
 }
 ```
 
 ### Win Condition
 
-```javascript
-function drawMap() {
-  // If player is on an EXIT tile (value 2):
-  if (map[playerTile] === 2) {
-    triggerWin();  // Display victory overlay, play chime
-  }
+Checked in `updatePlayer()` ([src/player.ts](src/player.ts)) each frame:
+
+```typescript
+if (tileAt(Math.floor(player.x / TILE), Math.floor(player.y / TILE)) === 2) {
+  onWin();  // callback → triggerWin() in gamestate.ts
 }
 ```
 
@@ -497,30 +494,65 @@ function hitPlayer() {
 
 ```
 lurker/
-├── game.js              # All game logic (single file)
-├── index.html           # HTML5 page & UI shells
-├── package.json         # Build config (Vite dev server)
-├── vite.config.js       # Vite build settings
+├── index.html           # HTML entry point — loads src/main.ts via Vite
+├── package.json         # Vite + TypeScript devDeps; "typecheck" script
+├── tsconfig.json        # strict, noEmit, moduleResolution: bundler
+├── vite.config.js       # base: /lurker/, outDir: dist (GitHub Pages)
+├── .github/workflows/deploy.yml  # npm ci → npm run build → Pages deploy
 ├── src/
-│   ├── game.js          # Copy of main game logic (for module builds)
+│   ├── main.ts          # Entry point: DOM setup, canvas sizing, boot
+│   ├── types.ts         # All shared interfaces & type aliases (no imports, no logic)
+│   ├── constants.ts     # TILE, FLASH_RANGE, FLASH_HALF_ANGLE, STICK_MAX, etc.
+│   ├── map.ts           # Tile map state, tileAt, isSolid, buildWallSegments, buildTorches
+│   ├── input.ts         # createInputState (keyboard + touch joysticks), updateFlashAngle
+│   ├── audio.ts         # initAudio, playSound, startHeartbeat, stopHeartbeat (Web Audio API)
+│   ├── player.ts        # createPlayer, updatePlayer, hitPlayer
+│   ├── particles.ts     # spawnParticles, updateParticles, drawParticles (pure, no globals)
+│   ├── raycasting.ts    # hasLOS, computeVisibilityPoly, drawVisibilityPoly (pure functions)
+│   ├── enemy.ts         # Enemy class — AI, movement, draw; receives EnemyContext
+│   ├── renderer.ts      # wx, wy, camUpdate, updateShake, drawMap, drawTorches,
+│   │                    #   drawPlayer, drawLighting, drawJoysticks
+│   ├── gamestate.ts     # Level management, game loop, triggerWin, triggerDeath
 │   └── levels/
-│       ├── level1.json  # Future level data
-│       ├── level2.json
-│       └── level3.json
+│       ├── level1.json  # 25×18 tile maze, 6 enemies
+│       ├── level2.json  # 30×21 tile maze, 8 enemies
+│       └── level3.json  # 36×23 tile maze, 11 enemies
 └── README.md            # Gameplay & controls
 ```
 
-Currently the game is **single-file** with inline HTML. Levels are hardcoded in the `MAP_RAW` constant; JSON files are placeholders for future expansion.
+### Module dependency graph (no cycles)
+
+```
+types.ts, constants.ts      ← (no imports — foundation layer)
+raycasting.ts, particles.ts ← types.ts
+audio.ts                    ← types.ts
+input.ts                    ← types.ts, constants.ts
+map.ts                      ← types.ts, constants.ts
+player.ts                   ← types.ts, constants.ts, map.ts, input.ts
+enemy.ts                    ← types.ts, constants.ts, map.ts, raycasting.ts
+renderer.ts                 ← types.ts, constants.ts, map.ts, raycasting.ts, particles.ts
+gamestate.ts                ← everything above + JSON levels
+main.ts                     ← audio.ts, input.ts, gamestate.ts
+```
 
 ---
 
 ## Key Design Decisions
 
-### Why Vanilla JS?
+### Why TypeScript + Vite (output still vanilla JS)?
 
-- **Minimal dependencies** — Single game.js file, no build step initially
-- **Full control** — Direct Canvas API access for lighting effects
-- **Mobile-friendly** — Web Audio + touch events without library overhead
+- **Type safety** — Strict mode catches interface mismatches across modules at `npm run typecheck`
+- **No runtime overhead** — Vite's esbuild strips all types; the deployed bundle is plain JS
+- **Deployment unchanged** — `vite build` → `dist/` → GitHub Pages; the workflow didn't change at all
+- **`tsconfig.json` uses `noEmit: true`** — TypeScript is type-checking only; Vite/esbuild owns transpilation
+
+### Why `EnemyContext` instead of importing globals?
+
+The `Enemy` class needs player state, wall segments, flash angle, and callbacks (`hitPlayer`, `playSound`, `spawnParticles`). Importing those directly would create circular dependencies (`enemy.ts → gamestate.ts → enemy.ts`). Instead, `Enemy` receives an `EnemyContext` interface at construction time — a bag of live getters and callbacks wired in `gamestate.ts`. The `IEnemy` interface in `types.ts` lets `renderer.ts` and `gamestate.ts` hold enemy arrays without importing the concrete class.
+
+### Why `wx(camera, worldX)` instead of a closure?
+
+The original `wx(worldX)` closed over a module-global `camera`. The refactored version takes `camera` explicitly, making the dependency visible and all rendering functions free of hidden global state.
 
 ### Why Dual Canvas for Lighting?
 
@@ -563,11 +595,11 @@ console.log(enemies[0].state, enemies[0].frozenCD);
 
 ### Visualize Light Cones
 
-Modify `Enemy.isIlluminated()` to log distance, angle, and result. Draw debug circles on canvas.
+Modify `Enemy.isIlluminated()` in [src/enemy.ts](src/enemy.ts) to log distance, angle, and result. Draw debug circles on canvas.
 
 ### Test Wall Occlusion
 
-Set `hasLOS()` to always return true—see if enemies now "see through" walls. Test raycasting independently.
+Set `hasLOS()` in [src/raycasting.ts](src/raycasting.ts) to always return `true` — see if enemies now "see through" walls. The function is pure (no side effects), so it can be tested in isolation.
 
 ### Framerate Issues
 

@@ -10,4 +10,4 @@ export const FLASH_RANGE      = 340;
 export const FLASH_HALF_ANGLE = Math.PI / 3.5; // ~51°
 
 // Ambient glow radius
-export const AMBIENT_RADIUS = 60;
+export const AMBIENT_RADIUS = 40;
